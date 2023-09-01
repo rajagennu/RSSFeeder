@@ -1,0 +1,96 @@
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"log"
+	"net/http"
+	"os"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/cors"
+	"github.com/joho/godotenv"
+)
+
+type ErrorResponse struct {
+	Error string `json:"error"`
+}
+
+type ReadynessResponse struct {
+	Status string `json:"status"`
+}
+
+func main() {
+	PORT := getPort()
+	log.Println("Read port from .env file ", PORT)
+
+	router := chi.NewRouter()
+	router.Use(cors.Handler(cors.Options{
+		// AllowedOrigins:   []string{"https://foo.com"}, // Use this to allow specific origin hosts
+		AllowedOrigins: []string{"https://*", "http://*"},
+		// AllowOriginFunc:  func(r *http.Request, origin string) bool { return true },
+		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
+		ExposedHeaders:   []string{"Link"},
+		AllowCredentials: false,
+		MaxAge:           300, // Maximum value not ignored by any of major browsers
+	}))
+
+	router.Mount("/v1", v1Router())
+	server := &http.Server{
+		Addr:    ":" + PORT,
+		Handler: router,
+	}
+	err := server.ListenAndServe()
+	if err != nil {
+		log.Fatalf("error while starting the server %s %q ", PORT, err)
+	}
+
+}
+
+func v1Router() chi.Router {
+	router := chi.NewRouter()
+	router.Get("/readiness", handleReadyNess)
+	router.Get("/err", handleErrorResponse)
+
+	return router
+}
+
+func getPort() string {
+	err := godotenv.Load(".env")
+	if err != nil {
+		fmt.Println("Error while try to load .env file, Please check")
+	}
+	key := "PORT"
+	return os.Getenv(key)
+}
+
+func respondWithJSON(w http.ResponseWriter, status int, payload interface{}) {
+	w.WriteHeader(status)
+	w.Header().Set("content-type", "application/json")
+	data, err := json.Marshal(payload)
+	if err != nil {
+		respondWithJSON(w, 500, "Internal Server Error")
+		return
+	}
+	w.Write(data)
+
+}
+
+func respondWithError(w http.ResponseWriter, code int, msg string) {
+	w.WriteHeader(code)
+	err := ErrorResponse{
+		Error: msg,
+	}
+	data, _ := json.Marshal(err)
+	w.Write(data)
+
+}
+
+func handleReadyNess(w http.ResponseWriter, r *http.Request) {
+	respondWithJSON(w, 200, ReadynessResponse{Status: "ok"})
+}
+
+func handleErrorResponse(w http.ResponseWriter, r *http.Request) {
+	respondWithError(w, 500, "Internal Server Error")
+}
